@@ -1,6 +1,9 @@
+#!/bin/python3
+
 import sys
 
 import pygame as pg
+from .cmd import *
 from .logger import *
 from .files import *
 
@@ -24,24 +27,27 @@ messages = {}
 
 window = False
 
+def init__surface(total_size, size, total_layers, version, cursor: bool = True, flags = pg.NOFRAME, title: str = False, image: str = False, show_tooltips: bool = True, factor_default = 1000, def_plugin: str = "naturemag", loading_sign_color = False, loading_bar_color = False, loading_bar_progress_color = False):
+	global WIDTH, HEIGHT, FRAME_X, FRAME_Y, FACTOR, LAYERS, window, screen, default_plugin, SIGN_COLOR, BAR_COLOR, BAR_PROGRESS_COLOR
 
-def init__surface(total_size, size, total_layers, version, cursor: bool = True, flags = pg.NOFRAME, title: str = False, image: str = False, show_tooltips: bool = True):
-	global WIDTH, HEIGHT, FRAME_X, FRAME_Y, FACTOR, LAYERS, window, screen
+	SIGN_COLOR = loading_sign_color or Color(150, 100, 50)
+	BAR_COLOR = loading_bar_color or Color(0, 150, 50)
+	BAR_PROGRESS_COLOR = loading_bar_progress_color or Color(150, 255, 150)
 
 	show__tooltips(show_tooltips)
 
 	WIDTH, HEIGHT = size
+	default_plugin = def_plugin
 
-	title = title or "Naturemag " + str(version)
-	image = image or '__RESOURCES__/ntmg.png'
+	title = title or str(version)
 
-	window = pg.display.set_mode(total_size, flags)
+	window = pg.display.set_mode(total_size, flags) if flags else pg.display.set_mode(total_size)
 	pg.display.set_caption(title)
-	pg.display.set_icon(pg.image.load(image))
+	pg.display.set_icon(pg.image.load(image)) if image else None
 
 	pg.mouse.set_visible(cursor)
 
-	FACTOR = HEIGHT / 1000
+	FACTOR = HEIGHT / factor_default
 	FRAME_X = (total_size[0] - size[0]) // 2
 	FRAME_Y = (total_size[1] - size[1]) // 2
 
@@ -54,15 +60,16 @@ def init__surface(total_size, size, total_layers, version, cursor: bool = True, 
 	return WIDTH, HEIGHT, FRAME_X, FRAME_Y, FACTOR
 
 
-def init__fonts(colors, msg = False, name = "ntmg", plugin = "naturemag"):
+def init__fonts(colors, msg = False, name = "ntmg", plugin = False, scale_factor = 1):
 	global FONT, FONT_LIST, messages
+
+	if not plugin: plugin = default_plugin
 
 	messages = msg
 
 	with open(get__path(plugin + "/data/fonts/" + name + ".font"), 'r') as file:
 		FONT_LIST = eval(file.read())
-
-	color_width = 512 / len(colors) * FACTOR
+	color_width = 512 / len(colors) * FACTOR * scale_factor
 
 	for n, color in enumerate(colors):
 		r = color.r
@@ -83,7 +90,7 @@ def init__fonts(colors, msg = False, name = "ntmg", plugin = "naturemag"):
 			FONT[map_rgb(color.to_pg_color())][letter] = surface
 
 		if messages:
-			draw__loading__bar__page(int(n * color_width), description="loading.font")
+			draw__loading__bar__page(int((n+1) * color_width), description="loading.font", scale_factor = scale_factor)
 
 
 def map_rgb(color):
@@ -114,6 +121,13 @@ class Color:
 	
 	def to_pg_color(self):
 		return pg.Color(self.r, self.g, self.b, self.a)
+	
+	def copy(self):
+		return Color(self.r, self.g, self.b, self.a)
+	
+	def set_alpha(self, a):
+		self.a = a
+		return self
 
 	
 class Position:
@@ -139,6 +153,43 @@ class Position:
 	
 	def set_pos(self, pos: tuple, center: tuple = (False, False)):
 		return self.set_pos_size(pos, self.size, center)
+	
+	def get_tuple_collision(self, pos: tuple):
+		return self.get_collision(Position(pos, (1, 1)))
+		
+	def get_collision(self, pos):
+		if self.center[0]:
+			self_start_pos_x = self.pos[0] - self.size[0] // 2
+			self_end_pos_x = self.pos[0] + self.size[0] // 2
+		else:
+			self_start_pos_x = self.pos[0]
+			self_end_pos_x = self.pos[0] + self.size[0]
+		if self.center[1]:
+			self_start_pos_y = self.pos[1] - self.size[1] // 2
+			self_end_pos_y = self.pos[1] + self.size[1] // 2
+		else:
+			self_start_pos_y = self.pos[1]
+			self_end_pos_y = self.pos[1] + self.size[1]
+		
+		if pos.center[0]:
+			pos_start_pos_x = pos.pos[0] - pos.size[0] // 2
+			pos_end_pos_x = pos.pos[0] + pos.size[0] // 2
+		else:
+			pos_start_pos_x = pos.pos[0]
+			pos_end_pos_x = pos.pos[0] + pos.size[0]
+		if pos.center[1]:
+			pos_start_pos_y = pos.pos[1] - pos.size[1] // 2
+			pos_end_pos_y = pos.pos[1] + pos.size[1] // 2
+		else:
+			pos_start_pos_y = pos.pos[1]
+			pos_end_pos_y = pos.pos[1] + pos.size[1]
+		
+		xcol = self_start_pos_x <= pos_start_pos_x <= self_end_pos_x or self_start_pos_x <= pos_end_pos_x <= self_end_pos_x \
+				or pos_start_pos_x <= self_start_pos_x <= pos_end_pos_x or pos_start_pos_x <= self_end_pos_x <= pos_end_pos_x
+		ycol = self_start_pos_y <= pos_start_pos_y <= self_end_pos_y or self_start_pos_y <= pos_end_pos_y <= self_end_pos_y \
+				or pos_start_pos_y <= self_start_pos_y <= pos_end_pos_y or pos_start_pos_y <= self_end_pos_y <= pos_end_pos_y
+		
+		return xcol and ycol
 
 
 class Surface:
@@ -186,7 +237,9 @@ class Surface:
 
 class ScreenObject(Surface):
 	def __init__(self, surface: Surface):
-		super().__init__(surface.size, surface.color)
+		self.pseudo_screen = None
+		x = super().__init__(surface.size, surface.color)
+		del x
 		self.init_surface = surface
 		self.position = Position((0, 0), self.size)
 		self.finished = False
@@ -209,7 +262,9 @@ class ScreenObject(Surface):
 		return self.get_pos()
 
 	def get_pos(self):
-		if isinstance(self.screen, ScreenObject):
+		if isinstance(self.pseudo_screen, ScreenObject):
+			return Position((self.position.x + self.pseudo_screen.get_surface_pos().x, self.position.y + self.pseudo_screen.get_surface_pos().y), self.size)
+		elif isinstance(self.screen, ScreenObject):
 			return Position((self.position.x + self.screen.get_surface_pos().x, self.position.y + self.screen.get_surface_pos().y), self.size)
 		else:
 			return Position((self.position.x, self.position.y), self.size)
@@ -240,6 +295,20 @@ class ScreenObject(Surface):
 		self.set_layer(screen.layer)
 		self.set_pos(pos, center)
 		self.screen = screen
+		return self
+
+	def set_pos_pseudo_screen(self, pos: tuple, screen, center: tuple = (False, False)):
+		self.set_layer(screen.layer)
+		self.set_pos(pos, center)
+		self.pseudo_screen = screen
+		return self
+
+	def set_screen(self, screen):
+		self.screen = screen
+		return screen
+
+	def set_from_position(self, pos: Position):
+		self.set_pos(pos.pos)
 		return self
 
 
@@ -379,7 +448,8 @@ class TextBox(ScrollableSurface):
 IMG_CACHE = {}.copy()
 
 class Image(Surface):
-	def __init__(self, path: str, size: tuple = False, plugin: str = "naturemag", alpha: int = 255, direct_path: bool = False, useFactor: bool = True):
+	def __init__(self, path: str, size: tuple = False, plugin: str = False, alpha: int = 255, direct_path: bool = False, useFactor: bool = True):
+		if not plugin: plugin = default_plugin
 		global IMG_CACHE
 		self.image = path
 		self.plugin = plugin
@@ -388,29 +458,58 @@ class Image(Surface):
 		if size:
 			super().__init__(size)
 			if (size, path) in IMG_CACHE:
-				self.surface = IMG_CACHE[(size, path)]
-				print__debug("Load image from cache:", path, size)
+				self.surface = IMG_CACHE[(size, path)].copy()
+				print__debug("Loading image from CACHE:", path, size)
 			else:
 				self.surface = pg.transform.scale(pg.image.load(path), size)
 				IMG_CACHE[(size, path)] = self.surface
+				print__debug("Loading image from FILE: ", path, size)
 		else:
 			if path in IMG_CACHE:
-				surface = IMG_CACHE[path]
+				surface = IMG_CACHE[path].copy()
 				size = (surface.get_width(), surface.get_height())
 				super().__init__(size)
-				self.surface = IMG_CACHE[path]
-				print__debug("Load image from cache: " + path)
+				self.surface = IMG_CACHE[path].copy()
+				print__debug("Loading image from CACHE: " + path)
 			else:
 				surface = pg.image.load(path)
 				size = (int(FACTOR * surface.get_width()), int(FACTOR * surface.get_height())) if useFactor else (surface.get_width(), surface.get_height())
 				super().__init__(size)
 				self.surface = pg.transform.scale(surface, size)
 				IMG_CACHE[path] = self.surface
+				print__debug("Loading image from FILE: ", path, size)
 		self.set_alpha(alpha)
 
 
 	def __repr__(self):
 		return "Image('" + str(self.image) + "', " + str(self.size) + ", '" + self.plugin + "', " + str(self.alpha) + ")"
+
+
+
+class Gradient(Surface):
+	def __init__(self, size: tuple, start_color: Color = Color(255, 255, 255), end_color: Color = Color(0, 0, 0), vertical: bool = False):
+		super().__init__(size)
+		self.size = size
+		self.start_color = start_color
+		self.end_color = end_color
+		self.vertical = vertical
+		self.generate_gradient()
+
+	
+	def generate_gradient(self):
+		width, height = self.size
+		base = height if self.vertical else width
+		for x in range(base):
+			# Calculate color interpolation
+			r = int((self.start_color.r * (base - x) + self.end_color.r * x) / base)
+			g = int((self.start_color.g * (base - x) + self.end_color.g * x) / base)
+			b = int((self.start_color.b * (base - x) + self.end_color.b * x) / base)
+			a = int((self.start_color.a * (base - x) + self.end_color.a * x) / base)
+			color = (r, g, b, a)
+
+			# Draw the vertical line
+			pg.draw.line(self.surface, color, (x, 0), (x, width if self.vertical else height))
+
 
 '''
 class GIFImage(Surface):
@@ -421,7 +520,7 @@ class Text(Surface):
 	def __init__(self, text: str, color: pg.Color = pg.Color(0, 0, 0), bg_color = pg.Color(0, 0, 0, 0), font_size: int = 1):
 		global FONT
 
-		self.text = text
+		self.text = str(text)
 		self.element_list = []
 
 		self.font_color = eval(str(color))
@@ -472,6 +571,7 @@ class Enum:
 	def set_with_dict(self, kwargs: dict):
 		for key, item in kwargs.items():
 			self.content[key] = item
+		return self
 
 	def get(self, key: str):
 		if key in self.content:
@@ -482,24 +582,45 @@ class Enum:
 
 	def get_all(self):
 		return self.content
+		
+	def __repr__(self):
+		return str(self.content)
+		
+	def __str__(self):
+		return self.__repr__()
+
+	def __len__(self):
+		return len(self.content.keys())
+
+	def __iter__(self):
+		self._i = 0
+		self.__keys__ = list(self.content.keys())
+		return self
+
+	def __next__(self):
+		if self._i == len(self): raise StopIteration
+		x = self.content[self.__keys__[self._i]]
+		self._i += 1
+		return x
 
 
 class Colors(Enum):
 	def __init__(self):
 		super().__init__()
-		self.set(black = Color(0, 0, 0))
-		self.set(red = Color(158, 35, 43))
-		self.set(green = Color(0, 119, 40))
-		self.set(yellow = Color(230, 150, 0))
-		self.set(gold = Color(255, 127, 0))
-		self.set(purple = Color(100, 0, 200))
-		self.set(magenta = Color(200, 0, 200))
-		self.set(aqua = Color(0, 200, 200))
-		self.set(light_blue = Color(150, 255, 255))
-		self.set(light_green = Color(150, 255, 150))
-		self.set(gray = Color(127, 127, 127))
-		self.set(brown = Color(100, 50, 0))
-		self.set(light_brown = Color(150, 100, 50))
+		self.set(black = Color(0, 0, 0, 255))
+		self.set(blue = Color(0, 0, 200, 255))
+		self.set(red = Color(158, 35, 43, 255))
+		self.set(green = Color(0, 119, 40, 255))
+		self.set(yellow = Color(230, 150, 0, 255))
+		self.set(gold = Color(255, 127, 0, 255))
+		self.set(purple = Color(100, 0, 200, 255))
+		self.set(magenta = Color(200, 0, 200, 255))
+		self.set(aqua = Color(0, 200, 200, 255))
+		self.set(light_blue = Color(150, 255, 255, 255))
+		self.set(light_green = Color(150, 255, 150, 255))
+		self.set(gray = Color(127, 127, 127, 255))
+		self.set(brown = Color(100, 50, 0, 255))
+		self.set(light_brown = Color(150, 100, 50, 255))
 
 
 COLORS = Colors()
@@ -544,7 +665,8 @@ def draw__clean(color: Color = Color(0, 0, 0)):
 	global LAYERS, SCREEN_OBJECTS
 	for screen in LAYERS:
 		screen.fill((0, 0, 0, 0))
-	SCREEN_OBJECTS = [[], [], [], [], [], [], [], []]
+		screen.element_list = [].copy()
+	SCREEN_OBJECTS = [[], [], [], [], [], [], [], []].copy()
 	LAYERS[0].fill(color)
 
 
@@ -553,6 +675,7 @@ def draw__clean__screen(screen: int = 3):
 
 	SCREEN_OBJECTS[screen].clear()
 	if screen != 1: LAYERS[screen].fill(Color(0, 0, 0, 0))
+	LAYERS[screen].element_list = [].copy()
 
 
 def draw__window():
@@ -560,7 +683,7 @@ def draw__window():
 
 	for n, i in enumerate(SCREEN_OBJECTS):
 		for j in i:
-			j.screen.blit(j, j.position.pos)
+			j.screen.blit(j, j.get_pos().pos)
 
 	for i in LAYERS:
 		window.blit(i.surface, (FRAME_X, FRAME_Y))
@@ -568,51 +691,51 @@ def draw__window():
 	pg.display.flip()
 
 
-def draw__sign(title, description: str = ""):
-	T_sign = Surface((int(FACTOR * 600), int(FACTOR * 300)), COLORS.light_brown)
-	T_sign.blit(Text(messages[title], font_size=2), (int(300 * FACTOR), int(140 * FACTOR)), (True, True))
-	if description: T_sign.blit(Text(messages[description]), (int(300 * FACTOR), int(220 * FACTOR)), (True, True))
-	return draw(ScreenObject(T_sign).set((int(WIDTH // 2 - 300 * FACTOR), int(HEIGHT // 2 - 150 * FACTOR)), 2))
+def draw__sign(title, description: str = "", sign_scale_factor = 1):
+	T_sign = Surface((int(FACTOR * 600 * sign_scale_factor), int(FACTOR * 300 * sign_scale_factor)), SIGN_COLOR)
+	T_sign.blit(Text(messages[title], font_size=2), (int(300 * FACTOR * sign_scale_factor), int(140 * FACTOR * sign_scale_factor)), (True, True))
+	if description: T_sign.blit(Text(messages[description]), (int(300 * FACTOR * sign_scale_factor), int(220 * FACTOR * sign_scale_factor)), (True, True))
+	return draw(ScreenObject(T_sign).set((int(WIDTH // 2 - 300 * FACTOR * sign_scale_factor), int(HEIGHT // 2 - 150 * FACTOR * sign_scale_factor)), 2))
 
 
-def draw__sign__page(title, description: str = ""):
+def draw__sign__page(title, description: str = "", sign_scale_factor = 1):
 	draw__clean()
-	draw__sign(title, description)
+	draw__sign(title, description, sign_scale_factor)
 	draw__window()
 
 
-def draw__loading__sign(description: str = ""):
-	return draw__sign('loading', description)
+def draw__loading__sign(description: str = "", sign_scale_factor = 1):
+	return draw__sign('loading', description, sign_scale_factor)
 
 
-def draw__loading__sign__page(description: str = ""):
+def draw__loading__sign__page(description: str = "", sign_scale_factor = 1):
 	draw__clean()
-	draw__loading__sign(description)
+	draw__loading__sign(description, sign_scale_factor)
 	draw__window()
 
 
 def draw__loading__bar(current_width: int, total_width: int = False, height: int = False,
-					   pos: tuple = False, center: tuple = (True, False)):
-	pos = pos or (WIDTH // 2, int(600 * FACTOR))
-	total_width = total_width or int(512 * FACTOR)
-	height = height or int(100 * FACTOR)
+					   pos: tuple = False, center: tuple = (True, False), scale_factor = 1):
+	pos = pos or (WIDTH // 2, int(HEIGHT // 2 + scale_factor * 100))
+	total_width = total_width or int(512 * FACTOR * scale_factor)
+	height = height or int(100 * FACTOR * scale_factor)
 	x, y = pos
 	if center[0]:
 		x = x - total_width // 2
 	if center[1]:
 		y = y - height // 2
-	bar = Surface((total_width, height), pg.Color(0, 150, 50))
-	progress = Surface((current_width, height), pg.Color(150, 255, 150))
+	bar = Surface((total_width, height), BAR_COLOR)
+	progress = Surface((current_width, height), BAR_PROGRESS_COLOR)
 	bar.blit(progress, (0, 0))
 	return draw(ScreenObject(bar).set((x, y), 3))
 
 
 def draw__loading__bar__page(current_width: int, total_width: int = False, height: int = False,
 							 pos: tuple = False, center: tuple = (True, False),
-							 description: str = ""):
+							 description: str = "", scale_factor = 1):
 	draw__clean()
-	draw__loading__sign(description)
-	draw__loading__bar(current_width, total_width, height, pos, center)
+	draw__loading__sign(description, scale_factor)
+	draw__loading__bar(current_width, total_width, height, pos, center, scale_factor)
 	draw__window()
 
 
