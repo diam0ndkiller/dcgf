@@ -32,6 +32,9 @@ def import_python_module(name: str):
 	elif WINDOWS:
 		os.system('py -3 -m pip install -U --user ' + name)
 
+def install_python_module(name: str):
+	import_python_module(name)
+
 
 def clear_screen():
 	if LINUX:
